@@ -1,0 +1,16 @@
+{
+  "short_name": "안전알림",
+  "name": "우리 아이 안전알림",
+  "description": "아이가 집·학원 도착 시 카카오톡으로 알림을 보내는 앱",
+  "icons": [
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#f97316",
+  "background_color": "#fff7ed",
+  "lang": "ko",
+  "categories": ["utilities", "lifestyle"]
+}
