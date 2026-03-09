@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect, useCallback } from "react";
 
 const KAKAO_JS_KEY = "5f465c50884bf651dbeb29410a13fc8f";
@@ -61,6 +62,7 @@ function Splash({ onDone }) {
   useEffect(() => {
     const ts = [setTimeout(()=>setStep(1),700), setTimeout(()=>setStep(2),1600), setTimeout(()=>setStep(3),3000), setTimeout(onDone,4500)];
     return () => ts.forEach(clearTimeout);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const visible = (n) => ({ opacity: step>=n?1:0, transform: step>=n?"translateY(0)":"translateY(14px)", transition:"opacity .55s ease, transform .55s ease" });
@@ -88,7 +90,8 @@ function Splash({ onDone }) {
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 function Toast({ msg, type, onDone }) {
-  useEffect(()=>{ const t=setTimeout(onDone,3800); return ()=>clearTimeout(t); },[]);
+  useEffect(()=>{ const t=setTimeout(onDone,3800); return ()=>clearTimeout(t); // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
   return (
     <div style={{ position:"fixed", bottom:34, left:"50%", transform:"translateX(-50%)", background:type==="error"?"#ef4444":type==="warn"?"#f59e0b":"#22c55e", color:"#fff", padding:"13px 22px", borderRadius:16, fontSize:14, fontWeight:700, boxShadow:"0 8px 28px rgba(0,0,0,.22)", zIndex:8000, animation:"toastUp .25s ease", maxWidth:"88vw", textAlign:"center", fontFamily:"'Noto Sans KR',sans-serif", lineHeight:1.6 }}>{msg}</div>
   );
