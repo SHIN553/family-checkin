@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 const KAKAO_JS_KEY = "5f465c50884bf651dbeb29410a13fc8f";
+const REDIRECT_URI = "https://family-checkin.vercel.app";
 const RADIUS_M = 200;
 const ICONS = ["🏠","📚","🎨","⚽","🎵","🏃","🍱","🎓","🏋️","🎮","🎯","🌟","🎪","🏫","🎀","🌈"];
 
@@ -43,6 +44,22 @@ function useKakaoSDK() {
     document.head.appendChild(s);
   }, []);
   return ready;
+}
+
+// 카카오 로그인 후 URL에서 access_token 파싱
+function useKakaoCallback(onToken) {
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes("access_token")) {
+      const params = new URLSearchParams(hash.replace("#", ""));
+      const token = params.get("access_token");
+      if (token) {
+        onToken(token);
+        // URL에서 토큰 제거 (보안)
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+  }, []);
 }
 
 async function sendKakaoMessage(token, text) {
@@ -260,7 +277,7 @@ function SettingsSheet({ childName, locations, kakaoToken, onSaveChild, onKakaoL
   const [editName, setEditName] = useState(childName);
   const [editingLoc, setEditingLoc] = useState(null);
   const [isNewLoc, setIsNewLoc] = useState(false);
-  const [kakaoLoading, setKakaoLoading] = useState(false);
+  // 카카오 로그인은 페이지 이동 방식 — 로딩 상태 불필요
 
   const S = {
     lbl: { fontSize:11, fontWeight:800, color:"#9ca3af", letterSpacing:1.2, textTransform:"uppercase", display:"block", marginBottom:8 },
@@ -269,14 +286,14 @@ function SettingsSheet({ childName, locations, kakaoToken, onSaveChild, onKakaoL
   };
 
   function loginKakao() {
-    if (KAKAO_JS_KEY === "YOUR_KAKAO_JS_KEY") { alert("⚠️ 코드 상단의 KAKAO_JS_KEY를 교체해주세요.\ndevelopers.kakao.com 에서 무료로 발급!"); return; }
-    if (!window.Kakao) { alert("카카오 SDK 로딩 중이에요. 잠시 후 다시 시도해주세요."); return; }
-    setKakaoLoading(true);
-    window.Kakao.Auth.login({
-      scope: "talk_message",
-      success: auth => { onKakaoLogin(auth.access_token); setKakaoLoading(false); },
-      fail: err => { console.error(err); setKakaoLoading(false); alert("로그인 실패. 앱 키와 도메인 설정을 확인해주세요."); },
-    });
+    // 팝업 대신 페이지 이동 방식 (모바일 호환)
+    const kakaoAuthUrl =
+      "https://kauth.kakao.com/oauth/authorize" +
+      "?client_id=" + KAKAO_JS_KEY +
+      "&redirect_uri=" + encodeURIComponent(REDIRECT_URI) +
+      "&response_type=token" +
+      "&scope=talk_message";
+    window.location.href = kakaoAuthUrl;
   }
 
   function openNewLoc() {
@@ -327,8 +344,8 @@ function SettingsSheet({ childName, locations, kakaoToken, onSaveChild, onKakaoL
                 </>
               ) : (
                 <>
-                  <button type="button" onClick={loginKakao} disabled={kakaoLoading} style={{ width:"100%", padding:"15px 0", borderRadius:13, border:"none", background:kakaoLoading?"#e5e7eb":"#FAE100", color:"#3A1D1D", fontSize:16, fontWeight:900, cursor:kakaoLoading?"not-allowed":"pointer", fontFamily:"'Noto Sans KR',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-                    <span style={{ fontSize:20 }}>💬</span>{kakaoLoading?"연결 중...":"카카오톡으로 로그인"}
+                  <button type="button" onClick={loginKakao} style={{ width:"100%", padding:"15px 0", borderRadius:13, border:"none", background:"#FAE100", color:"#3A1D1D", fontSize:16, fontWeight:900, cursor:"pointer", fontFamily:"'Noto Sans KR',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+                    <span style={{ fontSize:20 }}>💬</span>카카오톡으로 로그인
                   </button>
                   <div style={{ fontSize:11, color:"#9ca3af", marginTop:10, lineHeight:1.7, textAlign:"center" }}>
                     엄마 폰에서 로그인 → 아이가 버튼 누르면 카카오톡 자동 알림!
@@ -396,6 +413,14 @@ export default function App() {
   const [childName,  setChildName]  = useState(() => localStorage.getItem("fci_child") || "");
   const [locations,  setLocations]  = useState(() => loadStorage("fci_locs", [makeHome()]));
   const [kakaoToken, setKakaoToken] = useState(() => localStorage.getItem("fci_token") || null);
+
+  // 카카오 로그인 후 URL에서 토큰 자동 수신
+  useKakaoCallback(token => {
+    setKakaoToken(token);
+    localStorage.setItem("fci_token", token);
+    // 로그인 성공 후 스플래시 스킵
+    setSplashDone(true);
+  });
 
   // UI 상태
   const [activeTab,     setActiveTab]     = useState(0);
