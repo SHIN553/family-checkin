@@ -1,9 +1,9 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect, useCallback } from "react";
 
-const KAKAO_JS_KEY = "5f465c50884bf651dbeb29410a13fc8f";
-const REDIRECT_URI = "https://family-checkin.vercel.app";
-const KAKAO_REST_KEY = "a54e54f73d60e6ca99ddfcdf38c9855f"; // OAuth 로그인용 REST API 키
+const KAKAO_JS_KEY  = "5f465c50884bf651dbeb29410a13fc8f";  // JavaScript 키 (SDK 초기화)
+const KAKAO_REST_KEY = "c00e3ca82ed27969eb8f5ec0ba81f0c6"; // REST API 키 (로그인 URL)
+const REDIRECT_URI   = "https://family-checkin.vercel.app";
 const RADIUS_M = 200;
 const ICONS = ["🏠","📚","🎨","⚽","🎵","🏃","🍱","🎓","🏋️","🎮","🎯","🌟","🎪","🏫","🎀","🌈"];
 
@@ -34,7 +34,7 @@ function useKakaoSDK() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     function init() {
-      if (window.Kakao && !window.Kakao.isInitialized() && KAKAO_JS_KEY !== "YOUR_KAKAO_JS_KEY")
+      if (window.Kakao && !window.Kakao.isInitialized())
         window.Kakao.init(KAKAO_JS_KEY);
       setReady(true);
     }
@@ -47,18 +47,26 @@ function useKakaoSDK() {
   return ready;
 }
 
-// 카카오 로그인 후 URL에서 access_token 파싱
+// 카카오 로그인 후 URL의 code를 서버리스 함수로 토큰 교환
 function useKakaoCallback(onToken) {
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.includes("access_token")) {
-      const params = new URLSearchParams(hash.replace("#", ""));
-      const token = params.get("access_token");
-      if (token) {
-        onToken(token);
-        // URL에서 토큰 제거 (보안)
-        window.history.replaceState(null, "", window.location.pathname);
-      }
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (code) {
+      // URL에서 code 즉시 제거 (재사용 방지)
+      window.history.replaceState(null, "", window.location.pathname);
+      // 서버리스 함수로 토큰 교환
+      fetch("/api/kakao-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.access_token) onToken(data.access_token);
+          else alert("카카오 로그인 실패: " + (data.error || "알 수 없는 오류"));
+        })
+        .catch(() => alert("카카오 로그인 중 오류가 발생했어요."));
     }
   }, []);
 }
@@ -287,14 +295,14 @@ function SettingsSheet({ childName, locations, kakaoToken, onSaveChild, onKakaoL
   };
 
   function loginKakao() {
-    // 팝업 대신 페이지 이동 방식 (모바일 호환)
-    const kakaoAuthUrl =
-      "https://kauth.kakao.com/oauth/authorize" +
-      "?client_id=" + KAKAO_REST_KEY +
-      "&redirect_uri=" + encodeURIComponent(REDIRECT_URI) +
-      "&response_type=token" +
-      "&scope=talk_message";
-    window.location.href = kakaoAuthUrl;
+    if (!window.Kakao || !window.Kakao.isInitialized()) {
+      alert("카카오 SDK 로딩 중이에요. 잠시 후 다시 눌러주세요.");
+      return;
+    }
+    window.Kakao.Auth.authorize({
+      redirectUri: REDIRECT_URI,
+      scope: "talk_message",
+    });
   }
 
   function openNewLoc() {
