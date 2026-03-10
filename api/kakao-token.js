@@ -11,7 +11,7 @@ export default async function handler(req, res) {
 
   const params = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: "c00e3ca82ed27969eb8f5ec0ba81f0c6",  // REST API 키
+    client_id: "6caa1f69ad246b54749020e1e5ff3918",  // REST API 키
     redirect_uri: "https://family-checkin.vercel.app",
     code,
   });

@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 const KAKAO_JS_KEY  = "5f465c50884bf651dbeb29410a13fc8f";  // JavaScript 키 (SDK 초기화)
-const KAKAO_REST_KEY = "c00e3ca82ed27969eb8f5ec0ba81f0c6"; // REST API 키 (로그인 URL)
+const KAKAO_REST_KEY = "6caa1f69ad246b54749020e1e5ff3918"; // REST API 키 (로그인 URL)
 const REDIRECT_URI   = "https://family-checkin.vercel.app";
 const RADIUS_M = 200;
 const ICONS = ["🏠","📚","🎨","⚽","🎵","🏃","🍱","🎓","🏋️","🎮","🎯","🌟","🎪","🏫","🎀","🌈"];
