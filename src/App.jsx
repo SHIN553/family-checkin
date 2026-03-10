@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 
 const KAKAO_JS_KEY = "5f465c50884bf651dbeb29410a13fc8f";
 const REDIRECT_URI = "https://family-checkin.vercel.app";
+const KAKAO_REST_KEY = "a54e54f73d60e6ca99ddfcdf38c9855f"; // OAuth 로그인용 REST API 키
 const RADIUS_M = 200;
 const ICONS = ["🏠","📚","🎨","⚽","🎵","🏃","🍱","🎓","🏋️","🎮","🎯","🌟","🎪","🏫","🎀","🌈"];
 
@@ -289,7 +290,7 @@ function SettingsSheet({ childName, locations, kakaoToken, onSaveChild, onKakaoL
     // 팝업 대신 페이지 이동 방식 (모바일 호환)
     const kakaoAuthUrl =
       "https://kauth.kakao.com/oauth/authorize" +
-      "?client_id=" + KAKAO_JS_KEY +
+      "?client_id=" + KAKAO_REST_KEY +
       "&redirect_uri=" + encodeURIComponent(REDIRECT_URI) +
       "&response_type=token" +
       "&scope=talk_message";
