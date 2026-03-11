@@ -20,7 +20,7 @@ export default async function handler(req, res) {
 
   const params = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: "6caa1f69ad246b54749020e1e5ff3918",
+    client_id: "c00e3ca82ed27969eb8f5ec0ba81f0c6",
     redirect_uri: "https://family-checkin.vercel.app",
     code,
   });
@@ -33,6 +33,9 @@ export default async function handler(req, res) {
     });
     const data = await response.json();
     console.log("kakao token response:", JSON.stringify(data));
+    console.log("used client_id:", "6caa1f69ad246b54749020e1e5ff3918");
+    console.log("used redirect_uri:", "https://family-checkin.vercel.app");
+    console.log("code length:", code.length);
     if (data.access_token) {
       return res.status(200).json({ access_token: data.access_token });
     } else {
