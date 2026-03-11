@@ -295,14 +295,13 @@ function SettingsSheet({ childName, locations, kakaoToken, onSaveChild, onKakaoL
   };
 
   function loginKakao() {
-    if (!window.Kakao || !window.Kakao.isInitialized()) {
-      alert("카카오 SDK 로딩 중이에요. 잠시 후 다시 눌러주세요.");
-      return;
-    }
-    window.Kakao.Auth.authorize({
-      redirectUri: REDIRECT_URI,
-      scope: "talk_message",
-    });
+    // SDK 없이 직접 카카오 OAuth URL로 이동 (가장 안정적)
+    const url = "https://kauth.kakao.com/oauth/authorize" +
+      "?response_type=code" +
+      "&client_id=" + KAKAO_REST_KEY +
+      "&redirect_uri=" + encodeURIComponent(REDIRECT_URI) +
+      "&scope=talk_message";
+    window.location.href = url;
   }
 
   function openNewLoc() {
