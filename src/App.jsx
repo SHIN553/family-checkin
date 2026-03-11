@@ -52,10 +52,16 @@ function useKakaoCallback(onToken) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
+    const error = params.get("error");
+    
+    if (error) {
+      alert("카카오 로그인 오류: " + error);
+      return;
+    }
+    
     if (code) {
-      // URL에서 code 즉시 제거 (재사용 방지)
+      alert("✅ code 수신! 토큰 교환 중...\n" + code.substring(0, 20) + "...");
       window.history.replaceState(null, "", window.location.pathname);
-      // 서버리스 함수로 토큰 교환
       fetch("/api/kakao-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -66,7 +72,7 @@ function useKakaoCallback(onToken) {
           if (data.access_token) onToken(data.access_token);
           else alert("카카오 로그인 실패: " + (data.error || "알 수 없는 오류"));
         })
-        .catch(() => alert("카카오 로그인 중 오류가 발생했어요."));
+        .catch(e => alert("서버 오류: " + e.message));
     }
   }, []);
 }
