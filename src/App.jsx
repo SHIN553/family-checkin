@@ -19,14 +19,30 @@ const makeHome = () => ({
   id: "home", name: "집", icon: "🏠",
   buttonLabel: "집에 돌아왔어요",
   message: "{name}이(가) 집에 돌아왔어요! 🏠",
-  lat: null, lng: null, authMode: "none", password: "",
+  lat: null, lng: null,
 });
 
 function loadStorage(key, fallback) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+  try {
+    const v = localStorage.getItem(key);
+    if (!v) return fallback;
+    const parsed = JSON.parse(v);
+    return parsed;
+  } catch { return fallback; }
 }
 function saveStorage(key, val) {
-  try { localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val)); } catch {}
+  try {
+    const str = typeof val === "string" ? val : JSON.stringify(val);
+    localStorage.setItem(key, str);
+    // 백업 키에도 저장 (iOS PWA 대응)
+    localStorage.setItem(key + "_bak", str);
+  } catch {}
+}
+function loadStorageSafe(key, fallback) {
+  try {
+    const v = localStorage.getItem(key) || localStorage.getItem(key + "_bak");
+    return v ? JSON.parse(v) : fallback;
+  } catch { return fallback; }
 }
 
 // ─── Kakao SDK ────────────────────────────────────────────────────────────────
@@ -155,7 +171,7 @@ function LocationSheet({ loc, onSave, onDelete, onClose, isNew }) {
       ...p,
       name,
       ...(isNew ? {
-        buttonLabel: name ? `${name}에서 돌아왔어요` : "도착했어요",
+        buttonLabel: name ? `${name} 도착했어요` : "도착했어요",
         message:     name ? `{name}이(가) ${name}에 도착했어요! 📍` : "{name}이(가) 도착했어요!",
       } : {}),
     }));
@@ -249,30 +265,7 @@ function LocationSheet({ loc, onSave, onDelete, onClose, isNew }) {
           <div style={{ fontSize:11, color:"#9ca3af", marginTop:5 }}>※ GPS 위치는 나중에 해당 장소에서 등록해도 돼요. 등록 후 {RADIUS_M}m 이내에서 버튼 활성화!</div>
         </div>
 
-        {/* 인증 방식 */}
-        <div style={{ marginBottom:24 }}>
-          <label style={S.lbl}>인증 방식</label>
-          <div style={{ display:"flex", gap:8, marginBottom:10 }}>
-            {[{m:"none",ic:"🔓",lb:"없음",dc:"바로 전송"},{m:"password",ic:"🔐",lb:"암호",dc:"글자 입력"}].map(({m,ic,lb,dc})=>(
-              <button key={m} type="button" onClick={()=>upd("authMode",m)} style={{ flex:1, padding:"13px 8px", borderRadius:14, border:"none", background:d.authMode===m?"linear-gradient(135deg,#f97316,#ec4899)":"#f3f4f6", color:d.authMode===m?"#fff":"#6b7280", cursor:"pointer", fontFamily:"'Noto Sans KR',sans-serif", boxShadow:d.authMode===m?"0 4px 14px rgba(249,115,22,.3)":"none", transition:"all .15s" }}>
-                <div style={{ fontSize:20, marginBottom:3 }}>{ic}</div>
-                <div style={{ fontSize:13, fontWeight:800 }}>{lb}</div>
-                <div style={{ fontSize:10, opacity:.8, marginTop:2 }}>{dc}</div>
-              </button>
-            ))}
-          </div>
-          {d.authMode==="password" && (
-            <div style={{ background:"#fff7ed", borderRadius:12, padding:"14px 15px", border:"1px solid #fed7aa" }}>
-              <label style={{ ...S.lbl, color:"#f97316" }}>암호</label>
-              <input
-                style={{ ...S.inp, background:"#fffbf5" }}
-                value={d.password}
-                onChange={e => upd("password", e.target.value)}
-                placeholder="예: 다람쥐"
-              />
-            </div>
-          )}
-        </div>
+
 
         {/* 저장 / 삭제 */}
         <div style={{ display:"flex", gap:10 }}>
@@ -310,7 +303,7 @@ function SettingsSheet({ childName, locations, kakaoToken, onSaveChild, onKakaoL
   }
 
   function openNewLoc() {
-    setEditingLoc({ id:`loc_${Date.now()}`, name:"", icon:"📍", buttonLabel:"도착했어요", message:"", lat:null, lng:null, authMode:"none", password:"" });
+    setEditingLoc({ id:`loc_${Date.now()}`, name:"", icon:"📍", buttonLabel:"도착했어요", message:"", lat:null, lng:null });
     setIsNewLoc(true);
   }
 
@@ -386,7 +379,7 @@ function SettingsSheet({ childName, locations, kakaoToken, onSaveChild, onKakaoL
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:15, fontWeight:800, color:"#1f2937" }}>{loc.name}</div>
                     <div style={{ fontSize:12, color:"#9ca3af", marginTop:2 }}>
-                      버튼: "{loc.buttonLabel}" &nbsp;·&nbsp; {loc.authMode==="password"?"🔐 암호":"🔓 없음"} &nbsp;·&nbsp; {loc.lat?"📍 위치등록":"⚠️ 위치없음"}
+                      버튼: "{loc.buttonLabel}" &nbsp;·&nbsp; {loc.lat?"📍 위치등록":"⚠️ 위치없음"}
                     </div>
                   </div>
                   <div style={{ fontSize:13, color:"#9ca3af" }}>편집 ›</div>
@@ -424,7 +417,7 @@ export default function App() {
 
   // 영구 상태
   const [childName,  setChildName]  = useState(() => localStorage.getItem("fci_child") || "");
-  const [locations,  setLocations]  = useState(() => loadStorage("fci_locs", [makeHome()]));
+  const [locations,  setLocations]  = useState(() => loadStorageSafe("fci_locs", [makeHome()]));
   const [kakaoToken, setKakaoToken] = useState(() => localStorage.getItem("fci_token") || null);
 
   // 카카오 로그인 후 URL에서 토큰 자동 수신
@@ -439,8 +432,7 @@ export default function App() {
   const [activeTab,     setActiveTab]     = useState(0);
   const [showSettings,  setShowSettings]  = useState(false);
   const [userPos,       setUserPos]       = useState(null);
-  const [pw,            setPw]            = useState("");
-  const [pwVisible,     setPwVisible]     = useState(false);
+
   const [sending,       setSending]       = useState(false);
   const [toast,         setToast]         = useState(null);
   const [logs,          setLogs]          = useState([]);
@@ -490,14 +482,12 @@ export default function App() {
       showToast(gpsNotSet ? "📍 설정에서 위치를 먼저 등록해주세요!" : `📍 ${loc.name} 근처에 있어야 해요!`, "error");
       return;
     }
-    if (loc.authMode === "password" && pw.trim() !== loc.password) {
-      showToast("🔐 암호가 틀렸어요!", "error"); return;
-    }
+
     if (!kakaoToken) { showToast("⚠️ 설정에서 카카오 로그인을 먼저 해주세요!", "warn"); return; }
 
     setSending(true);
     const timeStr = new Date().toLocaleString("ko-KR", { month:"long", day:"numeric", hour:"2-digit", minute:"2-digit" });
-    const msgText = `${loc.icon} ${fillName(loc.message)}\n📅 ${timeStr}\n📍 ${loc.name}`;
+    const msgText = `🔔 우리아이 안전알림\n\n${loc.icon} ${fillName(loc.message)}\n\n📅 ${timeStr}\n📍 ${loc.name}`;
     try {
       await sendKakaoMessage(kakaoToken, msgText);
       showToast(`✅ 카카오톡 전송 완료!\n${fillName(loc.message)}`);
@@ -578,22 +568,7 @@ export default function App() {
             <div style={{ fontSize:15, fontWeight:700, color:"#6b7280" }}>{loc?.name}</div>
           </div>
 
-          {/* 암호 입력 */}
-          {loc?.authMode === "password" && (
-            <div style={{ width:"100%", position:"relative" }}>
-              <input
-                type={pwVisible?"text":"password"}
-                placeholder="🔐 암호 입력..."
-                value={pw}
-                onChange={e => setPw(e.target.value)}
-                onKeyDown={e => e.key==="Enter" && handleCheckin()}
-                style={{ width:"100%", padding:"15px 52px 15px 18px", borderRadius:16, border:"2px solid rgba(0,0,0,.09)", fontSize:17, fontFamily:"'Noto Sans KR',sans-serif", background:"rgba(255,255,255,.9)", outline:"none", color:"#1f2937", boxSizing:"border-box", WebkitAppearance:"none" }}
-              />
-              <button type="button" onClick={()=>setPwVisible(v=>!v)} style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", fontSize:18, opacity:.45 }}>
-                {pwVisible?"🙈":"👁️"}
-              </button>
-            </div>
-          )}
+
 
           {/* 메인 버튼 — 탭에 따라 텍스트/크기 즉시 변경 */}
           <button
