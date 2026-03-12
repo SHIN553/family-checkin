@@ -23,6 +23,7 @@ export default async function handler(req, res) {
     client_id: "c00e3ca82ed27969eb8f5ec0ba81f0c6",
     redirect_uri: "https://family-checkin.vercel.app",
     code,
+    client_secret: "JAO62ZrmCbzfq021Vhc9oD1GDbvcuMwo",
   });
 
   try {
