@@ -53,14 +53,13 @@ function useKakaoCallback(onToken) {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const error = params.get("error");
-    
+
     if (error) {
       alert("카카오 로그인 오류: " + error);
       return;
     }
-    
+
     if (code) {
-      alert("✅ code 수신! 토큰 교환 중...\n" + code.substring(0, 20) + "...");
       window.history.replaceState(null, "", window.location.pathname);
       fetch("/api/kakao-token", {
         method: "POST",
