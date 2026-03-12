@@ -64,18 +64,15 @@ function useKakaoSDK() {
 }
 
 // 카카오 로그인 후 URL의 code를 서버리스 함수로 토큰 교환
-// state 파라미터로 엄마(mom)/아빠(dad) 구분
+// state = 수신자 index (0,1,...)
 function useKakaoCallback(onToken) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const error = params.get("error");
-    const state = params.get("state") || "mom"; // 기본값 엄마
+    const idx = parseInt(params.get("state") || "0", 10);
 
-    if (error) {
-      alert("카카오 로그인 오류: " + error);
-      return;
-    }
+    if (error) { alert("카카오 로그인 오류: " + error); return; }
 
     if (code) {
       window.history.replaceState(null, "", window.location.pathname);
@@ -86,7 +83,7 @@ function useKakaoCallback(onToken) {
       })
         .then(r => r.json())
         .then(data => {
-          if (data.access_token) onToken(data.access_token, state);
+          if (data.access_token) onToken(data.access_token, idx);
           else alert("카카오 로그인 실패: " + (data.error || "알 수 없는 오류"));
         })
         .catch(e => alert("서버 오류: " + e.message));
@@ -282,7 +279,7 @@ function LocationSheet({ loc, onSave, onDelete, onClose, isNew }) {
 }
 
 // ─── 설정 시트 ────────────────────────────────────────────────────────────────
-function SettingsSheet({ childName, locations, kakaoToken, kakaoToken2, onSaveChild, onKakaoLogin, onKakaoLogin2, onKakaoLogout, onKakaoLogout2, onUpdateLocations, onClose }) {
+function SettingsSheet({ childName, locations, recipients, onSaveChild, onUpdateRecipients, onUpdateLocations, onClose }) {
   const [editName, setEditName] = useState(childName);
   const [editingLoc, setEditingLoc] = useState(null);
   const [isNewLoc, setIsNewLoc] = useState(false);
@@ -294,13 +291,14 @@ function SettingsSheet({ childName, locations, kakaoToken, kakaoToken2, onSaveCh
     sectionBox: { background:"#fff", borderRadius:16, padding:"18px", border:"1.5px solid #e5e7eb", marginBottom:10 },
   };
 
-  function loginKakao(who = "mom") {
+  function loginKakao(idx) {
     const url = "https://kauth.kakao.com/oauth/authorize" +
       "?response_type=code" +
       "&client_id=" + KAKAO_REST_KEY +
       "&redirect_uri=" + encodeURIComponent(REDIRECT_URI) +
       "&scope=talk_message" +
-      "&state=" + who;
+      "&state=" + idx +
+      "&prompt=login"; // 매번 계정선택 창 표시
     window.location.href = url;
   }
 
@@ -339,45 +337,62 @@ function SettingsSheet({ childName, locations, kakaoToken, kakaoToken2, onSaveCh
             </div>
           </div>
 
-          {/* 카카오 */}
+          {/* 카카오 수신자 관리 */}
           <div style={{ marginBottom:28 }}>
-            <label style={S.lbl}>💬 카카오톡 알림 연결</label>
-
-            {/* 엄마 */}
-            <div style={{ ...S.sectionBox, marginBottom:12 }}>
-              <div style={{ fontSize:13, fontWeight:800, color:"#f97316", marginBottom:10 }}>👩 엄마</div>
-              {kakaoToken ? (
-                <>
-                  <div style={{ background:"#f0fdf4", borderRadius:11, padding:"12px 14px", fontSize:13, fontWeight:700, color:"#16a34a", marginBottom:10 }}>
-                    ✅ 연결 완료 — 알림 전송 가능
+            <label style={S.lbl}>💬 카카오톡 알림 수신자</label>
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {recipients.map((r, idx) => (
+                <div key={idx} style={S.sectionBox}>
+                  {/* 라벨 편집 */}
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                    <input
+                      style={{ ...S.inp, flex:1, fontSize:14, padding:"10px 12px" }}
+                      value={r.label}
+                      onChange={e => {
+                        const next = recipients.map((x,i) => i===idx ? {...x, label:e.target.value} : x);
+                        onUpdateRecipients(next);
+                      }}
+                      placeholder="이름 (예: 엄마, 아빠)"
+                    />
+                    {idx > 0 && (
+                      <button type="button" onClick={() => onUpdateRecipients(recipients.filter((_,i)=>i!==idx))}
+                        style={{ padding:"10px 14px", borderRadius:10, border:"1.5px solid #fca5a5", background:"#fff", color:"#ef4444", fontWeight:700, fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>
+                        삭제
+                      </button>
+                    )}
                   </div>
-                  <button type="button" onClick={onKakaoLogout} style={{ width:"100%", padding:"11px 0", borderRadius:11, border:"1.5px solid #fca5a5", background:"#fff", color:"#ef4444", fontSize:13, fontWeight:700, cursor:"pointer" }}>로그아웃</button>
-                </>
-              ) : (
-                <button type="button" onClick={()=>loginKakao("mom")} style={{ width:"100%", padding:"14px 0", borderRadius:13, border:"none", background:"#FAE100", color:"#3A1D1D", fontSize:15, fontWeight:900, cursor:"pointer", fontFamily:"'Noto Sans KR',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-                  <span style={{ fontSize:18 }}>💬</span>엄마 카카오로 로그인
-                </button>
-              )}
+                  {/* 연결 상태 */}
+                  {r.token ? (
+                    <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                      <div style={{ flex:1, background:"#f0fdf4", borderRadius:10, padding:"10px 12px", fontSize:12, fontWeight:700, color:"#16a34a" }}>
+                        ✅ 카카오 연결 완료
+                      </div>
+                      <button type="button"
+                        onClick={() => onUpdateRecipients(recipients.map((x,i)=>i===idx?{...x,token:null}:x))}
+                        style={{ padding:"10px 14px", borderRadius:10, border:"1.5px solid #fca5a5", background:"#fff", color:"#ef4444", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+                        재로그인
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={()=>loginKakao(idx)}
+                      style={{ width:"100%", padding:"13px 0", borderRadius:12, border:"none", background:"#FAE100", color:"#3A1D1D", fontSize:15, fontWeight:900, cursor:"pointer", fontFamily:"'Noto Sans KR',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                      <span style={{ fontSize:18 }}>💬</span>{r.label} 카카오로 로그인
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
 
-            {/* 아빠 */}
-            <div style={S.sectionBox}>
-              <div style={{ fontSize:13, fontWeight:800, color:"#3b82f6", marginBottom:10 }}>👨 아빠</div>
-              {kakaoToken2 ? (
-                <>
-                  <div style={{ background:"#eff6ff", borderRadius:11, padding:"12px 14px", fontSize:13, fontWeight:700, color:"#2563eb", marginBottom:10 }}>
-                    ✅ 연결 완료 — 알림 전송 가능
-                  </div>
-                  <button type="button" onClick={onKakaoLogout2} style={{ width:"100%", padding:"11px 0", borderRadius:11, border:"1.5px solid #bfdbfe", background:"#fff", color:"#3b82f6", fontSize:13, fontWeight:700, cursor:"pointer" }}>로그아웃</button>
-                </>
-              ) : (
-                <button type="button" onClick={()=>loginKakao("dad")} style={{ width:"100%", padding:"14px 0", borderRadius:13, border:"none", background:"#FAE100", color:"#3A1D1D", fontSize:15, fontWeight:900, cursor:"pointer", fontFamily:"'Noto Sans KR',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-                  <span style={{ fontSize:18 }}>💬</span>아빠 카카오로 로그인
-                </button>
-              )}
-            </div>
+            {/* 수신자 추가 버튼 (최대 2명) */}
+            {recipients.length < 2 && (
+              <button type="button"
+                onClick={() => onUpdateRecipients([...recipients, { label:"아빠", token:null }])}
+                style={{ width:"100%", marginTop:10, padding:"13px 0", borderRadius:12, border:"2px dashed #d1d5db", background:"#f9fafb", color:"#6b7280", fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                + 수신자 추가 (최대 2명)
+              </button>
+            )}
             <div style={{ fontSize:11, color:"#9ca3af", marginTop:8, lineHeight:1.7, textAlign:"center" }}>
-              두 계정 모두 연결하면 동시에 알림이 가요!
+              로그인 시 매번 계정 선택창이 표시돼요
             </div>
           </div>
 
@@ -430,18 +445,30 @@ export default function App() {
   // 영구 상태
   const [childName,  setChildName]  = useState(() => localStorage.getItem("fci_child") || "");
   const [locations,  setLocations]  = useState(() => loadStorageSafe("fci_locs", [makeHome()]));
-  const [kakaoToken,  setKakaoToken]  = useState(() => localStorage.getItem("fci_token")  || null);
-  const [kakaoToken2, setKakaoToken2] = useState(() => localStorage.getItem("fci_token2") || null);
+  // recipients: [{label:"엄마", token:null}, {label:"아빠", token:null}]
+  const [recipients, setRecipients] = useState(() => {
+    const saved = loadStorageSafe("fci_recipients", null);
+    if (saved) return saved;
+    // 기존 토큰 마이그레이션
+    const t1 = localStorage.getItem("fci_token");
+    const t2 = localStorage.getItem("fci_token2");
+    return [
+      { label: "엄마", token: t1 || null },
+      ...(t2 ? [{ label: "아빠", token: t2 }] : []),
+    ];
+  });
 
-  // 카카오 로그인 후 URL에서 토큰 자동 수신 (state로 엄마/아빠 구분)
-  useKakaoCallback((token, who) => {
-    if (who === "dad") {
-      setKakaoToken2(token);
-      localStorage.setItem("fci_token2", token);
-    } else {
-      setKakaoToken(token);
-      localStorage.setItem("fci_token", token);
-    }
+  // 하위 호환용 (handleCheckin에서 사용)
+  const kakaoToken  = recipients[0]?.token || null;
+  const kakaoToken2 = recipients[1]?.token || null;
+
+  // 카카오 로그인 후 URL에서 토큰 자동 수신
+  useKakaoCallback((token, idx) => {
+    setRecipients(prev => {
+      const next = [...prev];
+      if (next[idx]) next[idx] = { ...next[idx], token };
+      return next;
+    });
     setSplashDone(true);
   });
 
@@ -457,6 +484,7 @@ export default function App() {
   // persist
   useEffect(() => { localStorage.setItem("fci_child", childName); }, [childName]);
   useEffect(() => { saveStorage("fci_locs", locations); }, [locations]);
+  useEffect(() => { saveStorage("fci_recipients", recipients); }, [recipients]);
   useEffect(() => { if (kakaoToken) localStorage.setItem("fci_token", kakaoToken); else localStorage.removeItem("fci_token"); }, [kakaoToken]);
 
   // GPS
@@ -500,19 +528,15 @@ export default function App() {
       return;
     }
 
-    if (!kakaoToken && !kakaoToken2) { showToast("⚠️ 설정에서 카카오 로그인을 먼저 해주세요!", "warn"); return; }
+    const connectedTokens = recipients.filter(r => r.token).map(r => r.token);
+    if (connectedTokens.length === 0) { showToast("⚠️ 설정에서 카카오 로그인을 먼저 해주세요!", "warn"); return; }
 
     setSending(true);
     const timeStr = new Date().toLocaleString("ko-KR", { month:"long", day:"numeric", hour:"2-digit", minute:"2-digit" });
     const msgText = `🔔 우리아이 안전알림\n\n${loc.icon} ${fillName(loc.message)}\n\n📅 ${timeStr}\n📍 ${loc.name}`;
     try {
-      // 연결된 계정 모두에 동시 전송
-      const sends = [];
-      if (kakaoToken)  sends.push(sendKakaoMessage(kakaoToken,  msgText));
-      if (kakaoToken2) sends.push(sendKakaoMessage(kakaoToken2, msgText));
-      await Promise.all(sends);
-      const count = sends.length;
-      showToast(`✅ 카카오톡 ${count}명에게 전송 완료!\n${fillName(loc.message)}`);
+      await Promise.all(connectedTokens.map(t => sendKakaoMessage(t, msgText)));
+      showToast(`✅ ${connectedTokens.length}명에게 전송 완료!\n${fillName(loc.message)}`);
       const time = new Date().toLocaleString("ko-KR", { month:"long", day:"numeric", hour:"2-digit", minute:"2-digit" });
       setLogs(p => [{ icon:loc.icon, msg:fillName(loc.message), time }, ...p.slice(0,4)]);
     } catch (e) {
@@ -642,13 +666,9 @@ export default function App() {
         <SettingsSheet
           childName={childName}
           locations={locations}
-          kakaoToken={kakaoToken}
-          kakaoToken2={kakaoToken2}
+          recipients={recipients}
           onSaveChild={name => { setChildName(name); showToast(`✅ "${name}" 저장!`); }}
-          onKakaoLogin={token => { setKakaoToken(token); showToast("✅ 엄마 카카오 연결 완료!"); }}
-          onKakaoLogin2={token => { setKakaoToken2(token); showToast("✅ 아빠 카카오 연결 완료!"); }}
-          onKakaoLogout={() => { setKakaoToken(null); localStorage.removeItem("fci_token"); showToast("엄마 카카오 로그아웃", "warn"); }}
-          onKakaoLogout2={() => { setKakaoToken2(null); localStorage.removeItem("fci_token2"); showToast("아빠 카카오 로그아웃", "warn"); }}
+          onUpdateRecipients={next => { setRecipients(next); }}
           onUpdateLocations={locs => { setLocations(locs); if (activeTab>=locs.length) setActiveTab(locs.length-1); }}
           onClose={() => setShowSettings(false)}
         />
