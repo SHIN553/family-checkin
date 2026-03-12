@@ -93,14 +93,14 @@ function useKakaoCallback(onToken) {
 }
 
 async function sendKakaoMessage(token, text) {
-  const res = await fetch("https://kapi.kakao.com/v2/api/talk/memo/default/send", {
+  // 서버리스 함수 경유 (CORS 우회)
+  const res = await fetch("/api/kakao-send", {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8", Authorization: `Bearer ${token}` },
-    body: new URLSearchParams({ template_object: JSON.stringify({ object_type:"text", text, link:{ web_url:"https://developers.kakao.com", mobile_web_url:"https://developers.kakao.com" } }) }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, text }),
   });
-  if (!res.ok) throw new Error(`kakao_${res.status}`);
   const d = await res.json();
-  if (d.result_code !== 0) throw new Error(`kakao_rc_${d.result_code}`);
+  if (!res.ok || !d.ok) throw new Error(d.error || `kakao_${res.status}`);
 }
 
 // ─── Splash ───────────────────────────────────────────────────────────────────
@@ -493,7 +493,6 @@ export default function App() {
       showToast(`✅ 카카오톡 전송 완료!\n${fillName(loc.message)}`);
       const time = new Date().toLocaleString("ko-KR", { month:"long", day:"numeric", hour:"2-digit", minute:"2-digit" });
       setLogs(p => [{ icon:loc.icon, msg:fillName(loc.message), time }, ...p.slice(0,4)]);
-      setPw("");
     } catch (e) {
       if (e.message?.includes("401") || e.message?.includes("kakao_4")) {
         setKakaoToken(null); showToast("❌ 카카오 토큰 만료. 설정에서 다시 로그인해주세요.", "error");
