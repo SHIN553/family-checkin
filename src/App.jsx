@@ -379,15 +379,6 @@ function SettingsSheet({ childName, locations, kakaoToken, kakaoToken2, onSaveCh
             <div style={{ fontSize:11, color:"#9ca3af", marginTop:8, lineHeight:1.7, textAlign:"center" }}>
               두 계정 모두 연결하면 동시에 알림이 가요!
             </div>
-            </div>
-            <div style={{ background:"#fffbeb", borderRadius:12, padding:"12px 14px", border:"1px solid #fde68a" }}>
-              <div style={{ fontSize:12, fontWeight:700, color:"#92400e", marginBottom:4 }}>💡 연동 방법</div>
-              <div style={{ fontSize:11, color:"#78350f", lineHeight:1.8 }}>
-                1. <strong>엄마 폰</strong>에서 이 앱 열고 카카오 로그인<br/>
-                2. 아이 폰으로 앱 URL 공유<br/>
-                3. 아이가 버튼 누르면 → 엄마 카카오로 알림!
-              </div>
-            </div>
           </div>
 
           {/* 장소 관리 */}
