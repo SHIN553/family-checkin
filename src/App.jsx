@@ -83,7 +83,7 @@ function useKakaoCallback(onToken) {
       })
         .then(r => r.json())
         .then(data => {
-          if (data.access_token) onToken(data.access_token, idx);
+          if (data.access_token) onToken(data.access_token, data.refresh_token, idx);
           else alert("카카오 로그인 실패: " + (data.error || "알 수 없는 오류"));
         })
         .catch(e => alert("서버 오류: " + e.message));
@@ -92,7 +92,6 @@ function useKakaoCallback(onToken) {
 }
 
 async function sendKakaoMessage(token, text) {
-  // 서버리스 함수 경유 (CORS 우회)
   const res = await fetch("/api/kakao-send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -100,6 +99,18 @@ async function sendKakaoMessage(token, text) {
   });
   const d = await res.json();
   if (!res.ok || !d.ok) throw new Error(d.error || `kakao_${res.status}`);
+}
+
+// 토큰 만료 시 refresh_token으로 자동 갱신
+async function refreshKakaoToken(refreshToken) {
+  const res = await fetch("/api/kakao-refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  const d = await res.json();
+  if (!res.ok || !d.access_token) throw new Error("refresh_failed");
+  return d; // { access_token, refresh_token }
 }
 
 // ─── Splash ───────────────────────────────────────────────────────────────────
@@ -463,10 +474,10 @@ export default function App() {
   const kakaoToken2 = recipients[1]?.token || null;
 
   // 카카오 로그인 후 URL에서 토큰 자동 수신
-  useKakaoCallback((token, idx) => {
+  useKakaoCallback((token, refreshToken, idx) => {
     setRecipients(prev => {
       const next = [...prev];
-      if (next[idx]) next[idx] = { ...next[idx], token };
+      if (next[idx]) next[idx] = { ...next[idx], token, refreshToken: refreshToken || next[idx].refreshToken };
       return next;
     });
     setSplashDone(true);
@@ -480,6 +491,8 @@ export default function App() {
   const [sending,       setSending]       = useState(false);
   const [toast,         setToast]         = useState(null);
   const [logs,          setLogs]          = useState([]);
+  const [lastSentAt,    setLastSentAt]    = useState(null); // 쿨다운용
+  const COOLDOWN_SEC = 60;
 
   // persist
   useEffect(() => { localStorage.setItem("fci_child", childName); }, [childName]);
@@ -522,26 +535,69 @@ export default function App() {
 
   function fillName(t) { return t.replace(/\{name\}/g, childName || "아이"); }
 
+  // 쿨다운 남은 초
+  const [coolRemain, setCoolRemain] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (lastSentAt) {
+        const remain = COOLDOWN_SEC - Math.floor((Date.now() - lastSentAt) / 1000);
+        setCoolRemain(remain > 0 ? remain : 0);
+      } else setCoolRemain(0);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lastSentAt]);
+
   async function handleCheckin() {
     if (!locOk) {
       showToast(gpsNotSet ? "📍 설정에서 위치를 먼저 등록해주세요!" : `📍 ${loc.name} 근처에 있어야 해요!`, "error");
       return;
     }
 
-    const connectedTokens = recipients.filter(r => r.token).map(r => r.token);
-    if (connectedTokens.length === 0) { showToast("⚠️ 설정에서 카카오 로그인을 먼저 해주세요!", "warn"); return; }
+    // 쿨다운 체크
+    if (lastSentAt) {
+      const elapsed = Math.floor((Date.now() - lastSentAt) / 1000);
+      if (elapsed < COOLDOWN_SEC) {
+        showToast(`⏳ ${COOLDOWN_SEC - elapsed}초 후 다시 누를 수 있어요!`, "warn");
+        return;
+      }
+    }
+
+    const connected = recipients.filter(r => r.token);
+    if (connected.length === 0) { showToast("⚠️ 설정에서 카카오 로그인을 먼저 해주세요!", "warn"); return; }
 
     setSending(true);
     const timeStr = new Date().toLocaleString("ko-KR", { month:"long", day:"numeric", hour:"2-digit", minute:"2-digit" });
     const msgText = `🔔 우리아이 안전알림\n\n${loc.icon} ${fillName(loc.message)}\n\n📅 ${timeStr}\n📍 ${loc.name}`;
     try {
-      await Promise.all(connectedTokens.map(t => sendKakaoMessage(t, msgText)));
-      showToast(`✅ ${connectedTokens.length}명에게 전송 완료!\n${fillName(loc.message)}`);
+      // 토큰 만료 시 자동 갱신 후 전송
+      let currentRecipients = [...recipients];
+      await Promise.all(connected.map(async (r, _) => {
+        const rIdx = currentRecipients.findIndex(x => x === r);
+        try {
+          await sendKakaoMessage(r.token, msgText);
+        } catch (e) {
+          // 401 토큰 만료 → refresh 시도
+          if ((e.message?.includes("401") || e.message?.includes("invalid_token")) && r.refreshToken) {
+            try {
+              const refreshed = await refreshKakaoToken(r.refreshToken);
+              currentRecipients[rIdx] = { ...r, token: refreshed.access_token, refreshToken: refreshed.refresh_token || r.refreshToken };
+              await sendKakaoMessage(refreshed.access_token, msgText);
+            } catch {
+              currentRecipients[rIdx] = { ...r, token: null };
+              throw new Error("token_expired_" + rIdx);
+            }
+          } else throw e;
+        }
+      }));
+      // 갱신된 recipients 저장
+      setRecipients(currentRecipients);
+      setLastSentAt(Date.now());
+      showToast(`✅ ${connected.length}명에게 전송 완료!\n${fillName(loc.message)}`);
       const time = new Date().toLocaleString("ko-KR", { month:"long", day:"numeric", hour:"2-digit", minute:"2-digit" });
       setLogs(p => [{ icon:loc.icon, msg:fillName(loc.message), time }, ...p.slice(0,4)]);
     } catch (e) {
-      if (e.message?.includes("401") || e.message?.includes("kakao_4")) {
-        setKakaoToken(null); showToast("❌ 카카오 토큰 만료. 설정에서 다시 로그인해주세요.", "error");
+      if (e.message?.startsWith("token_expired")) {
+        showToast("❌ 토큰 만료. 설정에서 다시 로그인해주세요.", "error");
       } else {
         showToast("❌ 전송 실패. 네트워크를 확인해주세요.", "error");
       }
@@ -619,21 +675,21 @@ export default function App() {
           <button
             type="button"
             onClick={handleCheckin}
-            disabled={sending || !locOk}
+            disabled={sending || !locOk || coolRemain > 0}
             key={`btn-${loc?.id}`}
             style={{
               width:"100%", padding:"26px 16px", borderRadius:24, border:"none",
-              background: sending ? "#9ca3af" : locOk ? "linear-gradient(135deg,#f97316 0%,#ec4899 100%)" : "linear-gradient(135deg,#d1d5db,#b0b0b0)",
+              background: sending ? "#9ca3af" : coolRemain > 0 ? "linear-gradient(135deg,#6b7280,#9ca3af)" : locOk ? "linear-gradient(135deg,#f97316 0%,#ec4899 100%)" : "linear-gradient(135deg,#d1d5db,#b0b0b0)",
               color:"#fff", fontSize:btnFontSize, fontWeight:900,
               fontFamily:"'Noto Sans KR',sans-serif",
-              cursor: locOk && !sending ? "pointer" : "not-allowed",
-              animation: locOk && !sending ? "glow 2.5s ease-in-out infinite" : "none",
+              cursor: locOk && !sending && coolRemain === 0 ? "pointer" : "not-allowed",
+              animation: locOk && !sending && coolRemain === 0 ? "glow 2.5s ease-in-out infinite" : "none",
               transition:"background .25s, font-size .2s",
               letterSpacing: btnFontSize > 24 ? 2 : 1,
               lineHeight: 1.2,
             }}
           >
-            {sending ? "전송 중..." : loc?.buttonLabel}
+            {sending ? "전송 중..." : coolRemain > 0 ? `⏳ ${coolRemain}초 후 전송 가능` : loc?.buttonLabel}
           </button>
 
           {/* 비활성 안내 */}
