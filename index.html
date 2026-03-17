@@ -13,7 +13,10 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="manifest" href="/manifest.json" />
     <title>우리 아이 안전알림</title>
-  </head>
+    <!-- Firebase SDK (iOS PWA 호환) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+</head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/index.jsx"></script>

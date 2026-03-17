@@ -75,39 +75,71 @@ function useKakaoSDK() {
 }
 
 // ─── Firebase FCM ─────────────────────────────────────────────────────────────
+function loadFirebaseScripts() {
+  return new Promise((resolve) => {
+    if (window.firebase?.messaging) { resolve(); return; }
+    const s1 = document.createElement("script");
+    s1.src = "https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js";
+    s1.onload = () => {
+      const s2 = document.createElement("script");
+      s2.src = "https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js";
+      s2.onload = resolve;
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s1);
+  });
+}
+
 async function initFCM() {
   try {
-    // Firebase SDK 동적 로드
-    const { initializeApp, getApps } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-    const { getMessaging, getToken, onMessage } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js");
+    // 알림 지원 여부 확인
+    if (!("Notification" in window)) {
+      alert("이 기기는 알림을 지원하지 않아요.\niOS는 홈화면에 설치 후 사용해주세요.");
+      return null;
+    }
+    if (!("serviceWorker" in navigator)) {
+      alert("서비스워커를 지원하지 않아요.\n홈화면에 설치된 앱에서 시도해주세요.");
+      return null;
+    }
 
-    const app = getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
-    const messaging = getMessaging(app);
+    // Firebase compat SDK 로드 (iOS 호환)
+    await loadFirebaseScripts();
+
+    if (!window.firebase.apps.length) {
+      window.firebase.initializeApp(FIREBASE_CONFIG);
+    }
+    const messaging = window.firebase.messaging();
 
     // 알림 권한 요청
     const permission = await Notification.requestPermission();
-    if (permission !== "granted") return null;
+    if (permission !== "granted") {
+      alert("알림 권한을 허용해주세요!\n설정 > Safari > 알림에서 허용하세요.");
+      return null;
+    }
+
+    // 서비스워커 등록
+    const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    await navigator.serviceWorker.ready;
 
     // FCM 토큰 발급
-    const token = await getToken(messaging, {
-      vapidKey: FCM_VAPID_KEY,
-      serviceWorkerRegistration: await navigator.serviceWorker.register("/firebase-messaging-sw.js"),
-    });
+    const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg });
+    if (!token) {
+      alert("토큰 발급 실패. 다시 시도해주세요.");
+      return null;
+    }
 
-    // 포그라운드 메시지 수신 (앱 열려있을 때)
-    onMessage(messaging, payload => {
+    // 포그라운드 메시지 수신
+    messaging.onMessage(payload => {
       const { title, body } = payload.notification || {};
       if (Notification.permission === "granted") {
-        new Notification(title || "🔔 우리아이 안전알림", {
-          body: body || "",
-          icon: "/icon-192.png",
-        });
+        new Notification(title || "🔔 우리아이 안전알림", { body: body || "", icon: "/icon-192.png" });
       }
     });
 
     return token;
   } catch (e) {
-    console.warn("FCM 초기화 실패:", e.message);
+    console.error("FCM 초기화 실패:", e.message);
+    alert("푸시 등록 실패: " + e.message);
     return null;
   }
 }
@@ -339,7 +371,27 @@ function LocationSheet({ loc, onSave, onDelete, onClose, isNew }) {
 }
 
 // ─── 설정 시트 ────────────────────────────────────────────────────────────────
-function SettingsSheet({ childName, locations, recipients, fcmTokens, onSaveChild, onUpdateRecipients, onRegisterPush, onUpdateLocations, onClose }) {
+// 토큰 붙여넣기 입력 컴포넌트
+function PushTokenInput({ onAdd }) {
+  const [val, setVal] = useState("");
+  return (
+    <div style={{ display:"flex", gap:6 }}>
+      <input
+        style={{ flex:1, padding:"10px 12px", borderRadius:10, border:"1.5px solid #e5e7eb", fontSize:12, fontFamily:"'Noto Sans KR',sans-serif", outline:"none" }}
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        placeholder="복사한 토큰 붙여넣기"
+      />
+      <button type="button"
+        onClick={() => { if(val.trim().length > 20){ onAdd(val.trim()); setVal(""); } else alert("올바른 토큰을 붙여넣어주세요"); }}
+        style={{ padding:"10px 14px", borderRadius:10, border:"none", background:"#f97316", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+        추가
+      </button>
+    </div>
+  );
+}
+
+function SettingsSheet({ childName, locations, recipients, myFcmToken, pushTargets, onSaveChild, onUpdateRecipients, onRegisterPush, onAddPushTarget, onRemovePushTarget, onUpdateLocations, onClose }) {
   const [editName, setEditName] = useState(childName);
   const [editingLoc, setEditingLoc] = useState(null);
   const [isNewLoc, setIsNewLoc] = useState(false);
@@ -458,29 +510,60 @@ function SettingsSheet({ childName, locations, recipients, fcmTokens, onSaveChil
 
           {/* 웹 푸시 알림 */}
           <div style={{ marginBottom:28 }}>
-            <label style={S.lbl}>🔔 폰 푸시알림 등록</label>
-            <div style={S.sectionBox}>
-              {fcmTokens.length > 0 ? (
+            <label style={S.lbl}>🔔 폰 푸시알림 설정</label>
+
+            {/* STEP 1: 엄마/아빠 폰에서 — 내 토큰 등록 */}
+            <div style={{ ...S.sectionBox, marginBottom:12 }}>
+              <div style={{ fontSize:12, fontWeight:800, color:"#6366f1", marginBottom:10 }}>
+                📱 STEP 1 — 엄마/아빠 폰에서 실행
+              </div>
+              {myFcmToken ? (
                 <>
-                  <div style={{ background:"#f0fdf4", borderRadius:11, padding:"12px 14px", fontSize:13, fontWeight:700, color:"#16a34a", marginBottom:10 }}>
-                    ✅ 이 기기 푸시알림 등록 완료
+                  <div style={{ background:"#f0fdf4", borderRadius:10, padding:"10px 12px", fontSize:12, fontWeight:700, color:"#16a34a", marginBottom:8 }}>
+                    ✅ 이 기기 토큰 등록 완료
                   </div>
-                  <button type="button" onClick={onRegisterPush}
-                    style={{ width:"100%", padding:"11px 0", borderRadius:11, border:"1.5px solid #d1d5db", background:"#fff", color:"#6b7280", fontSize:13, fontWeight:700, cursor:"pointer" }}>
-                    다시 등록
+                  <div style={{ fontSize:11, color:"#6b7280", marginBottom:8, wordBreak:"break-all", background:"#f9fafb", borderRadius:8, padding:"8px 10px" }}>
+                    {myFcmToken.substring(0,40)}...
+                  </div>
+                  <button type="button"
+                    onClick={() => { navigator.clipboard.writeText(myFcmToken); alert("✅ 토큰 복사 완료! 아이 폰에 붙여넣으세요"); }}
+                    style={{ width:"100%", padding:"11px 0", borderRadius:10, border:"none", background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                    📋 내 토큰 복사하기
                   </button>
                 </>
               ) : (
                 <>
                   <button type="button" onClick={onRegisterPush}
-                    style={{ width:"100%", padding:"14px 0", borderRadius:13, border:"none", background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff", fontSize:15, fontWeight:900, cursor:"pointer", fontFamily:"'Noto Sans KR',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-                    <span style={{ fontSize:18 }}>🔔</span>이 기기에 푸시알림 등록
+                    style={{ width:"100%", padding:"13px 0", borderRadius:12, border:"none", background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff", fontSize:14, fontWeight:900, cursor:"pointer", fontFamily:"'Noto Sans KR',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                    <span>🔔</span>이 기기 푸시알림 등록
                   </button>
-                  <div style={{ fontSize:11, color:"#9ca3af", marginTop:8, textAlign:"center", lineHeight:1.7 }}>
-                    엄마·아빠 폰 각각에서 등록하면 카카오톡 없이도 알림이 와요!
+                  <div style={{ fontSize:11, color:"#9ca3af", marginTop:6, textAlign:"center", lineHeight:1.6 }}>
+                    엄마·아빠 폰 각각에서 눌러주세요
                   </div>
                 </>
               )}
+            </div>
+
+            {/* STEP 2: 아이 폰에서 — 수신자 토큰 추가 */}
+            <div style={S.sectionBox}>
+              <div style={{ fontSize:12, fontWeight:800, color:"#f97316", marginBottom:10 }}>
+                👦 STEP 2 — 아이 폰에서 실행
+              </div>
+              <div style={{ fontSize:11, color:"#6b7280", marginBottom:10, lineHeight:1.6 }}>
+                엄마/아빠가 복사한 토큰을 아래에 붙여넣으세요
+              </div>
+              {pushTargets.map((t, i) => (
+                <div key={i} style={{ display:"flex", gap:6, alignItems:"center", marginBottom:6 }}>
+                  <div style={{ flex:1, fontSize:11, background:"#f0fdf4", borderRadius:8, padding:"8px 10px", color:"#16a34a", fontWeight:700, wordBreak:"break-all" }}>
+                    ✅ 수신자 {i+1} 등록됨
+                  </div>
+                  <button type="button" onClick={() => onRemovePushTarget(i)}
+                    style={{ padding:"8px 10px", borderRadius:8, border:"1.5px solid #fca5a5", background:"#fff", color:"#ef4444", fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+                    삭제
+                  </button>
+                </div>
+              ))}
+              <PushTokenInput onAdd={onAddPushTarget} />
             </div>
           </div>
 
@@ -569,14 +652,18 @@ export default function App() {
   const [toast,         setToast]         = useState(null);
   const [logs,          setLogs]          = useState([]);
   const [lastSentAt,    setLastSentAt]    = useState(null);
-  const [fcmTokens,     setFcmTokens]     = useState(() => loadStorageSafe("fci_fcm", []));
+  // pushTargets: 엄마/아빠 폰에서 등록한 FCM 토큰 (수신자)
+  const [pushTargets,   setPushTargets]   = useState(() => loadStorageSafe("fci_push_targets", []));
+  // myFcmToken: 현재 기기의 FCM 토큰 (이 기기가 수신자일 때)
+  const [myFcmToken,    setMyFcmToken]    = useState(() => localStorage.getItem("fci_my_fcm") || null);
   const COOLDOWN_SEC = 60;
 
   // persist
   useEffect(() => { localStorage.setItem("fci_child", childName); }, [childName]);
   useEffect(() => { saveStorage("fci_locs", locations); }, [locations]);
   useEffect(() => { saveStorage("fci_recipients", recipients); }, [recipients]);
-  useEffect(() => { saveStorage("fci_fcm", fcmTokens); }, [fcmTokens]);
+  useEffect(() => { saveStorage("fci_push_targets", pushTargets); }, [pushTargets]);
+  useEffect(() => { if (myFcmToken) localStorage.setItem("fci_my_fcm", myFcmToken); }, [myFcmToken]);
   useEffect(() => { if (kakaoToken) localStorage.setItem("fci_token", kakaoToken); else localStorage.removeItem("fci_token"); }, [kakaoToken]);
 
   // GPS
@@ -650,17 +737,17 @@ export default function App() {
     try {
       // 토큰 만료 시 자동 갱신 후 전송
       let currentRecipients = [...recipients];
-      // FCM 웹푸시 동시 전송
-      if (fcmTokens.length > 0) {
+      // FCM 웹푸시 — 엄마/아빠 폰으로 전송
+      if (pushTargets.length > 0) {
         fetch("/api/push-notify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            fcmTokens,
+            fcmTokens: pushTargets,
             title: "🔔 우리아이 안전알림",
             body: fillName(loc.message),
           }),
-        }).catch(() => {}); // 실패해도 카카오 전송은 계속
+        }).catch(() => {});
       }
 
       await Promise.all(connected.map(async (r, _) => {
@@ -815,18 +902,21 @@ export default function App() {
           childName={childName}
           locations={locations}
           recipients={recipients}
-          fcmTokens={fcmTokens}
+          myFcmToken={myFcmToken}
+          pushTargets={pushTargets}
           onSaveChild={name => { setChildName(name); showToast(`✅ "${name}" 저장!`); }}
           onUpdateRecipients={next => { setRecipients(next); }}
           onRegisterPush={async () => {
             const token = await initFCM();
             if (token) {
-              setFcmTokens(prev => prev.includes(token) ? prev : [...prev, token]);
-              showToast("✅ 푸시알림 등록 완료!");
+              setMyFcmToken(token);
+              showToast("✅ 이 기기 푸시 등록 완료! 토큰을 복사해서 아이 폰에 추가하세요.");
             } else {
-              showToast("❌ 알림 권한을 허용해주세요", "error");
+              showToast("❌ 알림 권한을 허용해주세요 (iOS: 홈화면 설치 후 시도)", "error");
             }
           }}
+          onAddPushTarget={token => { setPushTargets(prev => [...prev, token]); showToast("✅ 수신자 추가 완료!"); }}
+          onRemovePushTarget={idx => setPushTargets(prev => prev.filter((_,i)=>i!==idx))}
           onUpdateLocations={locs => { setLocations(locs); if (activeTab>=locs.length) setActiveTab(locs.length-1); }}
           onClose={() => setShowSettings(false)}
         />
