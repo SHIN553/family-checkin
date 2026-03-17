@@ -1,10 +1,21 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect, useCallback } from "react";
 
-const KAKAO_JS_KEY  = "5f465c50884bf651dbeb29410a13fc8f";  // JavaScript 키 (SDK 초기화)
-const KAKAO_REST_KEY = "c00e3ca82ed27969eb8f5ec0ba81f0c6"; // REST API 키 (우리아이알림 REST)
+const KAKAO_JS_KEY  = "5f465c50884bf651dbeb29410a13fc8f";
+const KAKAO_REST_KEY = "c00e3ca82ed27969eb8f5ec0ba81f0c6";
 const REDIRECT_URI   = "https://family-checkin.vercel.app";
 const RADIUS_M = 50;
+
+// Firebase 설정
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDGl97GESeGpiQxis2_9heeh62kDoMkEs8",
+  authDomain: "family-checkin-b78b8.firebaseapp.com",
+  projectId: "family-checkin-b78b8",
+  storageBucket: "family-checkin-b78b8.firebasestorage.app",
+  messagingSenderId: "1056701024501",
+  appId: "1:1056701024501:web:825f44fcf1b4925a561dbc",
+};
+const FCM_VAPID_KEY = "BAV9oLIO0bZNzI0wSIK3x3ssocAHUWFGrkCz-42m0PsdoFUz4RVqad8JTmhffnzYrF3mIyIxA1bBIyszn8SiUys";
 const ICONS = ["🏠","📚","🎨","⚽","🎵","🏃","🍱","🎓","🏋️","🎮","🎯","🌟","🎪","🏫","🎀","🌈"];
 
 function calcDistance(lat1, lon1, lat2, lon2) {
@@ -61,6 +72,44 @@ function useKakaoSDK() {
     document.head.appendChild(s);
   }, []);
   return ready;
+}
+
+// ─── Firebase FCM ─────────────────────────────────────────────────────────────
+async function initFCM() {
+  try {
+    // Firebase SDK 동적 로드
+    const { initializeApp, getApps } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+    const { getMessaging, getToken, onMessage } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js");
+
+    const app = getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG);
+    const messaging = getMessaging(app);
+
+    // 알림 권한 요청
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return null;
+
+    // FCM 토큰 발급
+    const token = await getToken(messaging, {
+      vapidKey: FCM_VAPID_KEY,
+      serviceWorkerRegistration: await navigator.serviceWorker.register("/firebase-messaging-sw.js"),
+    });
+
+    // 포그라운드 메시지 수신 (앱 열려있을 때)
+    onMessage(messaging, payload => {
+      const { title, body } = payload.notification || {};
+      if (Notification.permission === "granted") {
+        new Notification(title || "🔔 우리아이 안전알림", {
+          body: body || "",
+          icon: "/icon-192.png",
+        });
+      }
+    });
+
+    return token;
+  } catch (e) {
+    console.warn("FCM 초기화 실패:", e.message);
+    return null;
+  }
 }
 
 // 카카오 로그인 후 URL의 code를 서버리스 함수로 토큰 교환
@@ -290,7 +339,7 @@ function LocationSheet({ loc, onSave, onDelete, onClose, isNew }) {
 }
 
 // ─── 설정 시트 ────────────────────────────────────────────────────────────────
-function SettingsSheet({ childName, locations, recipients, onSaveChild, onUpdateRecipients, onUpdateLocations, onClose }) {
+function SettingsSheet({ childName, locations, recipients, fcmTokens, onSaveChild, onUpdateRecipients, onRegisterPush, onUpdateLocations, onClose }) {
   const [editName, setEditName] = useState(childName);
   const [editingLoc, setEditingLoc] = useState(null);
   const [isNewLoc, setIsNewLoc] = useState(false);
@@ -407,6 +456,34 @@ function SettingsSheet({ childName, locations, recipients, onSaveChild, onUpdate
             </div>
           </div>
 
+          {/* 웹 푸시 알림 */}
+          <div style={{ marginBottom:28 }}>
+            <label style={S.lbl}>🔔 폰 푸시알림 등록</label>
+            <div style={S.sectionBox}>
+              {fcmTokens.length > 0 ? (
+                <>
+                  <div style={{ background:"#f0fdf4", borderRadius:11, padding:"12px 14px", fontSize:13, fontWeight:700, color:"#16a34a", marginBottom:10 }}>
+                    ✅ 이 기기 푸시알림 등록 완료
+                  </div>
+                  <button type="button" onClick={onRegisterPush}
+                    style={{ width:"100%", padding:"11px 0", borderRadius:11, border:"1.5px solid #d1d5db", background:"#fff", color:"#6b7280", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                    다시 등록
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={onRegisterPush}
+                    style={{ width:"100%", padding:"14px 0", borderRadius:13, border:"none", background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff", fontSize:15, fontWeight:900, cursor:"pointer", fontFamily:"'Noto Sans KR',sans-serif", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                    <span style={{ fontSize:18 }}>🔔</span>이 기기에 푸시알림 등록
+                  </button>
+                  <div style={{ fontSize:11, color:"#9ca3af", marginTop:8, textAlign:"center", lineHeight:1.7 }}>
+                    엄마·아빠 폰 각각에서 등록하면 카카오톡 없이도 알림이 와요!
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           {/* 장소 관리 */}
           <div>
             <label style={S.lbl}>📍 장소 관리</label>
@@ -491,13 +568,15 @@ export default function App() {
   const [sending,       setSending]       = useState(false);
   const [toast,         setToast]         = useState(null);
   const [logs,          setLogs]          = useState([]);
-  const [lastSentAt,    setLastSentAt]    = useState(null); // 쿨다운용
+  const [lastSentAt,    setLastSentAt]    = useState(null);
+  const [fcmTokens,     setFcmTokens]     = useState(() => loadStorageSafe("fci_fcm", []));
   const COOLDOWN_SEC = 60;
 
   // persist
   useEffect(() => { localStorage.setItem("fci_child", childName); }, [childName]);
   useEffect(() => { saveStorage("fci_locs", locations); }, [locations]);
   useEffect(() => { saveStorage("fci_recipients", recipients); }, [recipients]);
+  useEffect(() => { saveStorage("fci_fcm", fcmTokens); }, [fcmTokens]);
   useEffect(() => { if (kakaoToken) localStorage.setItem("fci_token", kakaoToken); else localStorage.removeItem("fci_token"); }, [kakaoToken]);
 
   // GPS
@@ -571,6 +650,19 @@ export default function App() {
     try {
       // 토큰 만료 시 자동 갱신 후 전송
       let currentRecipients = [...recipients];
+      // FCM 웹푸시 동시 전송
+      if (fcmTokens.length > 0) {
+        fetch("/api/push-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fcmTokens,
+            title: "🔔 우리아이 안전알림",
+            body: fillName(loc.message),
+          }),
+        }).catch(() => {}); // 실패해도 카카오 전송은 계속
+      }
+
       await Promise.all(connected.map(async (r, _) => {
         const rIdx = currentRecipients.findIndex(x => x === r);
         try {
@@ -723,8 +815,18 @@ export default function App() {
           childName={childName}
           locations={locations}
           recipients={recipients}
+          fcmTokens={fcmTokens}
           onSaveChild={name => { setChildName(name); showToast(`✅ "${name}" 저장!`); }}
           onUpdateRecipients={next => { setRecipients(next); }}
+          onRegisterPush={async () => {
+            const token = await initFCM();
+            if (token) {
+              setFcmTokens(prev => prev.includes(token) ? prev : [...prev, token]);
+              showToast("✅ 푸시알림 등록 완료!");
+            } else {
+              showToast("❌ 알림 권한을 허용해주세요", "error");
+            }
+          }}
           onUpdateLocations={locs => { setLocations(locs); if (activeTab>=locs.length) setActiveTab(locs.length-1); }}
           onClose={() => setShowSettings(false)}
         />
