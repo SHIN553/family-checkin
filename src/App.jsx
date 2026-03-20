@@ -92,43 +92,52 @@ function loadFirebaseScripts() {
 
 async function initFCM() {
   try {
-    // 알림 지원 여부 확인
+    alert("📍 STEP 1: 알림 지원 확인 중...");
+
     if (!("Notification" in window)) {
-      alert("이 기기는 알림을 지원하지 않아요.\niOS는 홈화면에 설치 후 사용해주세요.");
+      alert("❌ 이 기기는 알림 미지원\niOS: 홈화면 설치 후 실행해주세요");
       return null;
     }
     if (!("serviceWorker" in navigator)) {
-      alert("서비스워커를 지원하지 않아요.\n홈화면에 설치된 앱에서 시도해주세요.");
+      alert("❌ 서비스워커 미지원\n홈화면 설치 후 실행해주세요");
       return null;
     }
 
-    // Firebase compat SDK 로드 (iOS 호환)
+    alert("📍 STEP 2: Firebase SDK 로드 중...");
     await loadFirebaseScripts();
+    alert("📍 STEP 3: Firebase 초기화 중...");
+
+    if (!window.firebase || !window.firebase.messaging) {
+      alert("❌ Firebase 로드 실패. 네트워크 확인 후 다시 시도해주세요.");
+      return null;
+    }
 
     if (!window.firebase.apps.length) {
       window.firebase.initializeApp(FIREBASE_CONFIG);
     }
     const messaging = window.firebase.messaging();
+    alert("📍 STEP 4: 알림 권한 요청 중...");
 
-    // 알림 권한 요청
     const permission = await Notification.requestPermission();
+    alert("📍 권한 결과: " + permission);
     if (permission !== "granted") {
-      alert("알림 권한을 허용해주세요!\n설정 > Safari > 알림에서 허용하세요.");
+      alert("❌ 알림 권한 거부됨\n설정에서 알림을 허용해주세요");
       return null;
     }
 
-    // 서비스워커 등록
+    alert("📍 STEP 5: 서비스워커 등록 중...");
     const swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
     await navigator.serviceWorker.ready;
+    alert("📍 STEP 6: FCM 토큰 발급 중...");
 
-    // FCM 토큰 발급
     const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: swReg });
     if (!token) {
-      alert("토큰 발급 실패. 다시 시도해주세요.");
+      alert("❌ 토큰 발급 실패. 다시 시도해주세요.");
       return null;
     }
 
-    // 포그라운드 메시지 수신
+    alert("✅ 토큰 발급 성공!\n" + token.substring(0, 30) + "...");
+
     messaging.onMessage(payload => {
       const { title, body } = payload.notification || {};
       if (Notification.permission === "granted") {
@@ -139,7 +148,7 @@ async function initFCM() {
     return token;
   } catch (e) {
     console.error("FCM 초기화 실패:", e.message);
-    alert("푸시 등록 실패: " + e.message);
+    alert("❌ 실패: " + e.message);
     return null;
   }
 }
